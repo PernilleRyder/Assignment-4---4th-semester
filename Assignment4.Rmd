@@ -91,19 +91,16 @@ Step 2: Prepare the pitch SD data from last year
 pd <- read_excel("~/Desktop/Computational models/Assignment 4/Assignment4PitchDatav2.xlsx")
 
 # Taking the mean of all values in the pitch mean data frame, split by participant
-mean = aggregate(pd, by = list(pd$ID), FUN = mean)
+mean = aggregate(pd, by = list(pd$ID_unique), FUN = mean)
 
 # subsetting pitchmean, pitchsd, and ID, so we can put it into the pitch data frame
-subset = subset(mean, select = c(ID,PitchMean, PitchSD))
+subset = subset(mean, select = c(ID_unique,diagnosis,PitchMean, PitchSD))
 
 # renaming the variables
 subset = plyr::rename(subset, c("PitchMean"="PitchMean.m", "PitchSD"="PitchSD.m"))
 
-#merging the two data sets
-merged = merge(pd, subset, by= "ID")
-
 #standardizing the standard deviation
-merged$PitchSD.m.c = (merged$PitchSD.m-mean(merged$PitchSD.m))/sd(merged$PitchSD.m)
+subset$PitchSD.m.c = (subset$PitchSD.m-mean(subset$PitchSD.m))/sd(subset$PitchSD.m)
 
 ```
 
@@ -130,31 +127,28 @@ Conservative prior - beta(0, .2)
 ```{r}
 library(rethinking)
 
-#model with a weak prior
-m2 <- map(
+#model with a skeptical 
+m2 <- map2stan(
   alist(
     PitchSD.m.c ~ dnorm(mu, sigma),
     mu <- alpha + beta * diagnosis,
-    alpha ~ dnorm (0,1), #there is no difference between the diagnosis the intercept will be one
-    beta ~ dnorm (0,1),
-    sigma ~ dcauchy(0,2) 
+    alpha ~ dnorm (0,1), #there is no difference between the diagnosis then the intercept will be one
+    beta ~ dnorm (0,0.2),
+    sigma ~ dcauchy(0,2)
   ), 
-  data=merged)
+  data=subset)
 precis(m2)
 
-plot
+#dens plot on simulated data
+#Simulating data 
+sim.m2 = sim(m2, data = subset, n = 1e4)
 
-#model with a skeptical/conservative prior 
-m3 <- map(
-  alist(
-    PitchSD.m.c ~ dnorm(mu, sigma),
-    mu <- alpha + beta * diagnosis,
-    alpha ~ dnorm (0,1),
-    beta ~ dnorm (0,0.2),
-    sigma ~ dcauchy(0,2) 
-  ), 
-  data=merged)
-precis(m3)
+#dens plot simulated data from model on raw data
+dens(sim.m2, col = "red", xlim = c(-5, 5), ylim = c(0,1),)
+par(new=TRUE)
+dens(subset$PitchSD.m.c, xlim = c(-5, 5), ylim = c(0,1),)
+title("Model 2")
+
 
 ```
 
@@ -162,18 +156,26 @@ Step 4: Now re-run the model with the meta-analytic prior
 - Describe and plot the estimates. Evaluate model quality
 
 ```{r}
-m4 <- map(
+m3 <-map2stan(
   alist(
     PitchSD.m.c ~ dnorm(mu, sigma),
     mu <- alpha + beta * diagnosis,
     alpha ~ dnorm (0,1), 
-    beta ~ dnorm (-0.55,0.26),
+    beta ~ dnorm (-0.55, 0.26),
     sigma ~ dcauchy(0,2) 
   ), 
-  data=merged)
-precis(m4)
+  data=subset)
+precis(m3)
 
+#dens plot on simulated data
+#Simulating data 
+sim.m3 = sim(m3, data = subset, n = 1e4)
 
+#dens plot simulated data from model on raw data
+dens(sim.m2, col = "red", xlim = c(-5, 5), ylim = c(0,1),)
+par(new=TRUE)
+dens(subset$PitchSD.m.c, xlim = c(-5, 5), ylim = c(0,1),)
+title("Model 3")
 ```
 
 Step 5: Compare the models
@@ -183,6 +185,40 @@ Step 5: Compare the models
 - Discuss how they compare and whether any of them is best.
 
 ```{r}
+#plot priors and posteriors
+#m2
+sample = extract.samples(m2, n = 1e4)
+sample$bprior = rnorm(1e4, 0, 0.2)
+
+type = rep(c("posterior", "prior"), each = 1e4)
+value = c(t(sample$beta), t(sample$bprior))
+d = data.frame(value,type)
+
+library(ggplot2)
+ggplot(d, aes(value, group=type)) + geom_density()
+
+#m3
+sample = extract.samples(m3, n = 1e4)
+sample$bprior = rnorm(1e4, 0, 0.2)
+
+type = rep(c("posterior", "prior"), each = 1e4)
+value = c(t(sample$beta), t(sample$bprior))
+d = data.frame(value,type)
+
+ggplot(d, aes(value, group=type)) + geom_density()
+
+#plot of posteriors
+plot(coeftab(m2, m3))
+
+#WAIC
+c_models = compare(m2,m3)
+c_models
+
+plot(c_models, SE=TRUE, dSE=TRUE)
+
+#How do they compare?
+#Indistinghusiable, dSE 
+# large SE, deviation is large. Overlapping
 
 ```
 
